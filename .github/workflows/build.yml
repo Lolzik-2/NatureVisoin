@@ -1,0 +1,44 @@
+
+name: NatureVision Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-package:
+    name: Validate and Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Check project files
+        run: |
+          test -f manifest.json
+          test -f materials/terrain.material
+          test -f shaders/terrain.vsh
+          test -f shaders/terrain.fsh
+
+      - name: Validate JSON
+        run: |
+          python3 -m json.tool manifest.json > /dev/null
+          python3 -m json.tool materials/terrain.material > /dev/null
+
+      - name: Package NatureVision
+        run: |
+          zip -r NatureVision-1.16.40.zip \
+            manifest.json materials shaders
+
+      - name: Upload shader pack
+        uses: actions/upload-artifact@v6
+        with:
+          name: NatureVision-1.16.40
+          path: NatureVision-1.16.40.zip
