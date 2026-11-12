@@ -1,0 +1,19 @@
+
+{
+  "format_version": 2,
+  "header": {
+    "name": "NatureVision Universal",
+    "description": "Lightweight realistic visuals for Minecraft Bedrock 1.16.40 Android",
+    "uuid": "a92f3f20-7c61-4c35-9f31-2d1a8b7e6041",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 16, 0]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "c8135a72-91e4-4d0b-8f26-6a3e2c7b5190",
+      "version": [1, 0, 0]
+    }
+  ]
+}
+ 
