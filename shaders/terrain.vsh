@@ -1,9 +1,42 @@
+
 // NatureVision Universal
-// Vertex shader for legacy Bedrock renderer
+// Minecraft Bedrock 1.16.40
+// Legacy GLSL terrain vertex shader
 
 // __multiversion__
 
 #include "vertexVersionCentroid.h"
+
+#if __VERSION__ >= 300
+    #ifndef BYPASS_PIXEL_SHADER
+        _centroid out vec2 uv0;
+        _centroid out vec2 uv1;
+    #endif
+#else
+    #ifndef BYPASS_PIXEL_SHADER
+        varying vec2 uv0;
+        varying vec2 uv1;
+    #endif
+#endif
+
+#ifndef BYPASS_PIXEL_SHADER
+    varying vec4 color;
+#endif
+
+#ifdef FOG
+    varying float fog;
+#endif
+
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+    #define HM highp
+#else
+    #define HM mediump
+#endif
+
+varying HM vec3 cPos;
+varying HM vec3 wPos;
+varying float wf;
+
 #include "uniformWorldConstants.h"
 #include "uniformPerFrameConstants.h"
 #include "uniformRenderChunkConstants.h"
@@ -15,30 +48,43 @@ attribute vec4 COLOR;
 attribute vec2 TEXCOORD_0;
 attribute vec2 TEXCOORD_1;
 
-#ifndef BYPASS_PIXEL_SHADER
-varying vec2 uv0;
-varying vec2 uv1;
-varying vec4 vertexColor;
-varying float plantMotion;
-varying float waterMotion;
-#endif
-
-#ifdef FOG
-varying float fog;
-#endif
-
-highp float nv_hash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+highp float hash11(highp float p)
+{
+    p = fract(p * 0.1031);
+    p *= p + 33.33;
+    return fract((p + p) * p);
 }
 
-void main() {
-    POS4 worldPos;
+highp float randomValue(highp float p)
+{
+    p = p / 3.0 + TOTAL_REAL_WORLD_TIME;
 
-    #ifndef BYPASS_PIXEL_SHADER
+    return mix(
+        hash11(floor(p)),
+        hash11(ceil(p)),
+        smoothstep(0.0, 1.0, fract(p))
+    ) * 2.0;
+}
+
+void main()
+{
+    wf = 0.0;
+
+    POS4 worldPos;
+    POS4 pos;
+
+#ifndef BYPASS_PIXEL_SHADER
     uv0 = TEXCOORD_0;
     uv1 = TEXCOORD_1;
-    vertexColor = COLOR;
-    #endif
+    color = COLOR;
+#endif
+
+#ifdef AS_ENTITY_RENDERER
+
+    pos = WORLDVIEWPROJ * POSITION;
+    worldPos = pos;
+
+#else
 
     worldPos.xyz =
         POSITION.xyz * CHUNK_ORIGIN_AND_SCALE.w +
@@ -46,73 +92,107 @@ void main() {
 
     worldPos.w = 1.0;
 
-    float time = TOTAL_REAL_WORLD_TIME;
+#ifndef BYPASS_PIXEL_SHADER
 
-    float plant = 0.0;
-    float water = 0.0;
+    // NatureVision vegetation wind.
+    float foliageMask = 0.0;
 
-    // Detect likely foliage/grass vertices.
-    if (COLOR.g > COLOR.r * 1.08 &&
-        COLOR.g > COLOR.b * 1.03 &&
-        COLOR.a > 0.05) {
-        plant = 1.0;
+    if (COLOR.a > 0.05 && COLOR.g > COLOR.r)
+    {
+        foliageMask = 1.0;
     }
 
-    // Detect partially transparent terrain.
-    if (COLOR.a > 0.05 && COLOR.a < 0.95) {
-        water = 1.0;
-    }
+    vec3 localPosition = POSITION.xyz;
 
-    vec2 worldXZ = worldPos.xz;
+    float windRandom = randomValue(
+        localPosition.x +
+        localPosition.y +
+        localPosition.z
+    );
 
-    float windPhase =
-        dot(worldXZ, vec2(0.17, 0.13)) +
-        time * 1.35;
+    float windWave = sin(
+        TOTAL_REAL_WORLD_TIME * 2.0 +
+        localPosition.x * 1.7 +
+        localPosition.z * 1.4
+    );
 
-    float wind =
-        sin(windPhase) * 0.65 +
-        sin(windPhase * 1.7 + 1.2) * 0.35;
+    float windWave2 = sin(
+        TOTAL_REAL_WORLD_TIME * 1.3 +
+        localPosition.z * 1.1 -
+        localPosition.x * 0.8
+    );
 
-    float randomFactor = nv_hash(floor(worldXZ));
+    float heightMask = clamp(
+        fract(localPosition.y),
+        0.0,
+        1.0
+    );
 
-    // Keep the base of plants stable.
-    float heightFactor = fract(POSITION.y);
-
-    float windStrength = 0.055;
+    float distanceFade = clamp(
+        1.0 - length(worldPos.xyz) /
+        FAR_CHUNKS_DISTANCE,
+        0.0,
+        1.0
+    );
 
     worldPos.x +=
-        wind * randomFactor *
-        heightFactor * plant * windStrength;
+        windWave *
+        0.025 *
+        foliageMask *
+        heightMask *
+        windRandom *
+        distanceFade;
 
     worldPos.z +=
-        cos(windPhase * 0.8) *
-        randomFactor *
-        heightFactor * plant * windStrength * 0.45;
+        windWave2 *
+        0.012 *
+        foliageMask *
+        heightMask *
+        distanceFade;
 
-    // Very subtle water vertex movement.
-    float wave =
-        sin(worldXZ.x * 0.35 + time * 1.2) *
-        cos(worldXZ.y * 0.28 + time * 0.9);
+    // Water detection.
+#ifndef SEASONS
+    if (COLOR.a > 0.05 && COLOR.a < 0.95)
+    {
+        wf = 1.0;
+    }
+#endif
 
-    worldPos.y += wave * water * 0.012;
+#endif
 
-    #ifndef BYPASS_PIXEL_SHADER
-    plantMotion = plant;
-    waterMotion = water;
-    #endif
-
+    // Standard Bedrock transformation.
     POS4 viewPos = WORLDVIEW * worldPos;
-    gl_Position = PROJ * viewPos;
+    pos = PROJ * viewPos;
 
-    #ifdef FOG
-    float cameraDistance = length(viewPos.xyz);
-    float fogAmount = cameraDistance / RENDER_DISTANCE;
+#endif
+
+    gl_Position = pos;
+
+    cPos = POSITION.xyz;
+    wPos = worldPos.xyz;
+
+#ifdef FOG
+
+    float cameraDepth = length(-worldPos.xyz);
+
+    float len = cameraDepth / max(RENDER_DISTANCE, 0.001);
+
+#ifdef ALLOW_FADE
+    len += RENDER_CHUNK_FOG_ALPHA;
+#endif
 
     fog = clamp(
-        (fogAmount - FOG_CONTROL.x) /
+        (len - FOG_CONTROL.x) /
         max(FOG_CONTROL.y - FOG_CONTROL.x, 0.001),
         0.0,
         1.0
     );
-    #endif
+
+#endif
+
+#ifndef BYPASS_PIXEL_SHADER
+#ifndef FOG
+    color.rgb += FOG_COLOR.rgb * 0.000001;
+#endif
+#endif
 }
